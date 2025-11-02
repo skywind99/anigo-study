@@ -251,7 +251,6 @@ const TeacherView: React.FC<TeacherViewProps> = ({
       alert("좌석 해제에 실패했습니다.");
     }
   };
-
   const isMobile = window.innerWidth < 768;
 
   return (
