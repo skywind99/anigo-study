@@ -386,7 +386,20 @@ const LoginView: React.FC<LoginViewProps> = ({ onClose, onLoginSuccess }) => {
                   boxSizing: "border-box",
                   fontSize: "14px",
                 }}
-              />
+              />{" "}
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "#666",
+                  marginTop: "8px",
+                  lineHeight: "1.4",
+                }}
+              >
+                테스트:{" "}
+                {loginType === "admin"
+                  ? "admin@school.com"
+                  : "teacher@school.com"}
+              </p>
             </div>
             <div style={{ marginBottom: "15px" }}>
               <label
