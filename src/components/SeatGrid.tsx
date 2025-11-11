@@ -23,8 +23,12 @@ const SeatGrid: React.FC<SeatGridProps> = ({
   const isMobile = window.innerWidth < 768;
 
   const isSeatAvailable = (seatId: string) => {
+    // 예약 상태이거나 입실완료 상태이면 사용 불가능 (선택 모드일 때)
     return !reservations.find(
-      (r) => r.seat_id === seatId && r.date === currentDate
+      (r) =>
+        r.seat_id === seatId &&
+        r.date === currentDate &&
+        r.status !== "퇴실완료" // 퇴실 완료된 좌석은 다시 선택 가능하다고 가정
     );
   };
 
@@ -56,7 +60,8 @@ const SeatGrid: React.FC<SeatGridProps> = ({
 
   const getSeatNumber = (seatId: string) => {
     const seat = seats.find((s) => s.id === seatId);
-    return seat?.number || "";
+    // seatId가 'A-1' 형태일 때 number만 반환
+    return seat?.number.toString() || seatId.split("-")[1] || "";
   };
 
   const getSeatStyle = (seatId: string, isClickable: boolean) => {
@@ -240,10 +245,6 @@ const SeatGrid: React.FC<SeatGridProps> = ({
       .filter((s) => s.group === "B" && s.grade === 2)
       .sort((a, b) => a.number - b.number);
 
-    console.log("B구역 좌석:", groupBSeats.length, "개");
-    console.log("Mode:", mode);
-    console.log("onSeatClick:", onSeatClick);
-
     return (
       <div style={{ marginBottom: "30px" }}>
         <h3
@@ -268,21 +269,10 @@ const SeatGrid: React.FC<SeatGridProps> = ({
           {/* 1-10번 */}
           {groupBSeats.slice(0, 10).map((seat) => {
             const isClickable = mode === "select" && isSeatAvailable(seat.id);
-            console.log(
-              `좌석 ${seat.number}: mode=${mode}, available=${isSeatAvailable(
-                seat.id
-              )}, clickable=${isClickable}`
-            );
             return (
               <button
                 key={seat.id}
                 onClick={() => {
-                  console.log(
-                    "좌석 클릭:",
-                    seat.id,
-                    "isClickable:",
-                    isClickable
-                  );
                   if (isClickable && onSeatClick) {
                     onSeatClick(seat.id);
                   }
@@ -339,6 +329,7 @@ const SeatGrid: React.FC<SeatGridProps> = ({
               </button>
             );
           })}
+          {/* 39석이므로 마지막에 빈 칸 1개 (40번 자리) */}
           <div style={emptyStyle}></div>
         </div>
       </div>
@@ -354,6 +345,8 @@ const SeatGrid: React.FC<SeatGridProps> = ({
       .filter((s) => s.group === "C" && s.grade === 2)
       .sort((a, b) => a.number - b.number);
 
+    // C구역은 26석을 가정하고, 7*4=28칸 중 2칸이 비도록 구현합니다.
+
     return (
       <div style={{ marginBottom: "30px" }}>
         <h3
@@ -364,7 +357,7 @@ const SeatGrid: React.FC<SeatGridProps> = ({
             color: "#8B5CF6",
           }}
         >
-          C구역 - 2학년 폐쇄형 (27석)
+          C구역 - 2학년 폐쇄형 (26석)
         </h3>
         <div
           style={{
@@ -419,9 +412,9 @@ const SeatGrid: React.FC<SeatGridProps> = ({
             );
           })}
 
-          {/* 4번째 줄: 빈칸 22-27 빈칸 */}
+          {/* 4번째 줄: 빈칸 + 22-26번 + 빈칸 (총 5석만 렌더링) */}
           <div style={emptyStyle}></div>
-          {groupCSeats.slice(21, 27).map((seat) => {
+          {groupCSeats.slice(21, 26).map((seat) => {
             const isClickable = mode === "select" && isSeatAvailable(seat.id);
             return (
               <button
@@ -440,7 +433,7 @@ const SeatGrid: React.FC<SeatGridProps> = ({
     );
   };
 
-  // D구역: 2학년 오픈형
+  // D구역: 2학년 오픈형 (32석)
   const renderGroupD = () => {
     // 2학년이 아니면 렌더링 안함
     if (grade !== 2) return null;
@@ -448,6 +441,18 @@ const SeatGrid: React.FC<SeatGridProps> = ({
     const groupDSeats = seats
       .filter((s) => s.group === "D" && s.grade === 2)
       .sort((a, b) => a.number - b.number);
+
+    // D구역의 좌석 번호 범위 확인: D-1 ~ D-32 (총 32석)
+    // 상단 (D-1 ~ D-18) = 18석
+    // 하단 (D-19 ~ D-32) = 14석
+
+    // 상단 배치: 2x2 테이블 3개 | 3x2 테이블 1개 (총 18석)
+    // 2x2 테이블 3개: 4*3 = 12석 (D-1 ~ D-12)
+    // 3x2 테이블 1개: 6석 (D-13 ~ D-18)
+
+    // 하단 배치: 1x8 줄 1개 | 3x2 테이블 1개 (총 14석)
+    // 1x8 줄 1개: 8석 (D-19 ~ D-26)
+    // 3x2 테이블 1개: 6석 (D-27 ~ D-32)
 
     return (
       <div style={{ marginBottom: "30px" }}>
@@ -459,49 +464,118 @@ const SeatGrid: React.FC<SeatGridProps> = ({
             color: "#F59E0B",
           }}
         >
-          D구역 - 2학년 오픈형
+          D구역 - 2학년 오픈형 (32석)
         </h3>
 
-        {/* 상단: 2×2 테이블 3개, 3×2 테이블 1개 */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(8, 1fr)",
-            gap: "8px",
-            maxWidth: "700px",
-            marginBottom: "8px",
-          }}
-        >
-          {groupDSeats.slice(0, 18).map((seat) => {
-            const isClickable = mode === "select" && isSeatAvailable(seat.id);
-            return (
-              <button
-                key={seat.id}
-                onClick={() => isClickable && onSeatClick?.(seat.id)}
-                style={getSeatStyle(seat.id, isClickable)}
-                disabled={!isClickable}
-              >
-                {getSeatNumber(seat.id)}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* 하단: 8칸 1줄 + 3×2 테이블 */}
+        {/* --- 상단 배치 (D-1 ~ D-18): 2x2 테이블 3개 + 3x2 테이블 1개 --- */}
         <div
           style={{
             display: "flex",
             gap: "20px",
             alignItems: "flex-start",
+            marginBottom: "15px",
+            maxWidth: "700px",
           }}
         >
+          {/* 1. 2x2 테이블 3개 (D-1 ~ D-12) */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(2, 1fr) 20px repeat(2, 1fr) 20px repeat(2, 1fr)",
+              gap: "8px",
+              flex: 1, // 공간을 차지하도록 설정
+            }}
+          >
+            {/* D-1 ~ D-4 (2x2) */}
+            {groupDSeats.slice(0, 4).map((seat) => {
+              const isClickable = mode === "select" && isSeatAvailable(seat.id);
+              return (
+                <button
+                  key={seat.id}
+                  onClick={() => isClickable && onSeatClick?.(seat.id)}
+                  style={getSeatStyle(seat.id, isClickable)}
+                  disabled={!isClickable}
+                >
+                  {getSeatNumber(seat.id)}
+                </button>
+              );
+            })}
+            <div style={{ gridColumn: "3", gridRow: "1 / 3" }}></div>{" "}
+            {/* 간격 */}
+            {/* D-5 ~ D-8 (2x2) */}
+            {groupDSeats.slice(4, 8).map((seat) => {
+              const isClickable = mode === "select" && isSeatAvailable(seat.id);
+              return (
+                <button
+                  key={seat.id}
+                  onClick={() => isClickable && onSeatClick?.(seat.id)}
+                  style={getSeatStyle(seat.id, isClickable)}
+                  disabled={!isClickable}
+                >
+                  {getSeatNumber(seat.id)}
+                </button>
+              );
+            })}
+            <div style={{ gridColumn: "6", gridRow: "1 / 3" }}></div>{" "}
+            {/* 간격 */}
+            {/* D-9 ~ D-12 (2x2) */}
+            {groupDSeats.slice(8, 12).map((seat) => {
+              const isClickable = mode === "select" && isSeatAvailable(seat.id);
+              return (
+                <button
+                  key={seat.id}
+                  onClick={() => isClickable && onSeatClick?.(seat.id)}
+                  style={getSeatStyle(seat.id, isClickable)}
+                  disabled={!isClickable}
+                >
+                  {getSeatNumber(seat.id)}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* 2. 3x2 테이블 1개 (D-13 ~ D-18) */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "8px",
+              width: "180px", // 3열 테이블 너비
+            }}
+          >
+            {groupDSeats.slice(12, 18).map((seat) => {
+              const isClickable = mode === "select" && isSeatAvailable(seat.id);
+              return (
+                <button
+                  key={seat.id}
+                  onClick={() => isClickable && onSeatClick?.(seat.id)}
+                  style={getSeatStyle(seat.id, isClickable)}
+                  disabled={!isClickable}
+                >
+                  {getSeatNumber(seat.id)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* --- 하단 배치 (D-19 ~ D-32): 1x8 줄 1개 + 3x2 테이블 1개 --- */}
+        <div
+          style={{
+            display: "flex",
+            gap: "20px",
+            alignItems: "flex-start",
+            maxWidth: "700px",
+          }}
+        >
+          {/* 1. 1x8 줄 (D-19 ~ D-26) */}
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(8, 1fr)",
               gap: "8px",
               flex: 1,
-              maxWidth: "500px",
             }}
           >
             {groupDSeats.slice(18, 26).map((seat) => {
@@ -519,15 +593,16 @@ const SeatGrid: React.FC<SeatGridProps> = ({
             })}
           </div>
 
+          {/* 2. 3x2 테이블 1개 (D-27 ~ D-32) */}
           <div
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(3, 1fr)",
               gap: "8px",
-              width: "150px",
+              width: "150px", // 3열 테이블 너비
             }}
           >
-            {groupDSeats.slice(26).map((seat) => {
+            {groupDSeats.slice(26, 32).map((seat) => {
               const isClickable = mode === "select" && isSeatAvailable(seat.id);
               return (
                 <button
@@ -548,6 +623,7 @@ const SeatGrid: React.FC<SeatGridProps> = ({
 
   return (
     <div>
+      {/* grade prop에 따라 3학년 좌석 또는 2학년 좌석 그룹(B, C, D)이 렌더링됨 */}
       {renderGroupA()}
       {renderGroupB()}
       {renderGroupC()}
