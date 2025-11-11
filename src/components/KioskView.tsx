@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { supabase } from "../supabaseClient";
 import { Student, Seat, Reservation } from "../App";
+import SeatGrid from "./SeatGrid";
 
 interface KioskViewProps {
   students: Student[];
@@ -29,6 +30,7 @@ const KioskView: React.FC<KioskViewProps> = ({
   const [selectingSeat, setSelectingSeat] = useState(false);
   const [studentForSeatSelection, setStudentForSeatSelection] =
     useState<Student | null>(null);
+  const [selectedSeatId, setSelectedSeatId] = useState<string>(""); // ✅ SeatGrid용
   const [isComposing, setIsComposing] = useState(false);
   const [overlay, setOverlay] = useState<CheckInOverlay | null>(null);
 
@@ -77,6 +79,7 @@ const KioskView: React.FC<KioskViewProps> = ({
         setTimeout(() => {
           setSelectingSeat(false);
           setStudentForSeatSelection(null);
+          setSelectedSeatId("");
         }, 3000);
 
         await onDataChange();
@@ -152,6 +155,7 @@ const KioskView: React.FC<KioskViewProps> = ({
     );
 
     if (reservation) {
+      // ✅ 예약이 있는 경우 → 입실 처리
       if (reservation.status === "입실완료") {
         alert("이미 입실 처리되었습니다.");
         return;
@@ -192,64 +196,9 @@ const KioskView: React.FC<KioskViewProps> = ({
         alert("입실 처리에 실패했습니다.");
       }
     } else {
-      // 고정좌석 확인
-      if (student.fixed_seat_id) {
-        const fixedSeat = seats.find((s) => s.id === student.fixed_seat_id);
-
-        if (fixedSeat) {
-          const seatReserved = reservations.find(
-            (r) => r.seat_id === fixedSeat.id && r.date === currentDate
-          );
-
-          if (seatReserved) {
-            alert("고정좌석이 이미 다른 학생이 사용 중입니다.");
-            return;
-          }
-
-          try {
-            const now = new Date();
-            const hours = String(now.getHours()).padStart(2, "0");
-            const minutes = String(now.getMinutes()).padStart(2, "0");
-            const seconds = String(now.getSeconds()).padStart(2, "0");
-            const checkInTime = `${hours}:${minutes}:${seconds}`;
-
-            const { data, error } = await supabase
-              .from("reservations")
-              .insert([
-                {
-                  student_id: student.id,
-                  seat_id: fixedSeat.id,
-                  date: currentDate,
-                  status: "입실완료",
-                  check_in_time: checkInTime,
-                },
-              ])
-              .select();
-
-            if (error) throw error;
-            if (data) {
-              showOverlay({
-                studentName: student.name,
-                grade: student.grade,
-                seatInfo: `${fixedSeat.type} ${fixedSeat.number}번 (고정좌석)`,
-                status: "success",
-                message: "입실 완료!",
-              });
-
-              await onDataChange();
-            }
-          } catch (error) {
-            console.error("고정좌석 입실 오류:", error);
-            alert("입실 처리에 실패했습니다.");
-          }
-        } else {
-          alert("고정좌석 정보가 올바르지 않습니다.");
-        }
-      } else {
-        // 고정좌석이 없는 경우 좌석 선택 화면으로
-        setStudentForSeatSelection(student);
-        setSelectingSeat(true);
-      }
+      // ✅ 예약이 없는 경우 → 좌석 선택 화면으로
+      setStudentForSeatSelection(student);
+      setSelectingSeat(true);
     }
   };
 
@@ -257,14 +206,6 @@ const KioskView: React.FC<KioskViewProps> = ({
 
   // 좌석 선택 화면
   if (selectingSeat && studentForSeatSelection) {
-    const availableSeatsForSelection = seats.filter(
-      (s: Seat) =>
-        s.grade === studentForSeatSelection.grade &&
-        !reservations.find(
-          (r: Reservation) => r.seat_id === s.id && r.date === currentDate
-        )
-    );
-
     // 3학년 좌석 선택하지 않음 처리 함수
     const handleNoSeatSelection = async () => {
       if (!studentForSeatSelection) return;
@@ -301,6 +242,7 @@ const KioskView: React.FC<KioskViewProps> = ({
           setTimeout(() => {
             setSelectingSeat(false);
             setStudentForSeatSelection(null);
+            setSelectedSeatId("");
           }, 3000);
 
           await onDataChange();
@@ -352,6 +294,18 @@ const KioskView: React.FC<KioskViewProps> = ({
               {studentForSeatSelection.class}반 {studentForSeatSelection.number}
               번
             </p>
+            {selectedSeatId && (
+              <p
+                style={{
+                  fontSize: "20px",
+                  fontWeight: "bold",
+                  color: "#3B82F6",
+                  marginTop: "10px",
+                }}
+              >
+                선택한 좌석: {selectedSeatId}
+              </p>
+            )}
           </div>
 
           {studentForSeatSelection.fixed_seat_id && (
@@ -392,8 +346,7 @@ const KioskView: React.FC<KioskViewProps> = ({
               fontWeight: "bold",
             }}
           >
-            사용할 좌석을 선택해주세요 (남은 좌석:{" "}
-            {availableSeatsForSelection.length}개)
+            사용할 좌석을 선택해주세요
           </p>
 
           {/* 3학년만 좌석 선택하지 않음 버튼 */}
@@ -426,294 +379,61 @@ const KioskView: React.FC<KioskViewProps> = ({
             </button>
           )}
 
-          <div style={{ display: "grid", gap: "25px" }}>
-            {studentForSeatSelection.grade === 3 && (
-              <div
-                style={{
-                  border: "2px solid #ddd",
-                  borderRadius: "16px",
-                  padding: "20px",
-                  background: "white",
-                }}
-              >
-                <h3
-                  style={{
-                    marginBottom: "15px",
-                    fontSize: "20px",
-                    fontWeight: "bold",
-                    color: "#1F2937",
-                  }}
-                >
-                  A그룹 - 3학년석
-                </h3>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: isMobile
-                      ? "repeat(5, 1fr)"
-                      : "repeat(7, 1fr)",
-                    gap: "12px",
-                  }}
-                >
-                  {availableSeatsForSelection
-                    .filter((s: Seat) => s.group === "A")
-                    .map((seat: Seat) => (
-                      <button
-                        key={seat.id}
-                        onClick={() => completeSeatSelection(seat.id)}
-                        style={{
-                          padding: isMobile ? "18px" : "24px",
-                          fontSize: isMobile ? "18px" : "22px",
-                          fontWeight: "bold",
-                          border: "3px solid #3B82F6",
-                          borderRadius: "12px",
-                          background: "white",
-                          cursor: "pointer",
-                          transition: "all 0.2s",
-                          color: "#3B82F6",
-                        }}
-                        onMouseEnter={(
-                          e: React.MouseEvent<HTMLButtonElement>
-                        ) => {
-                          e.currentTarget.style.background = "#3B82F6";
-                          e.currentTarget.style.color = "white";
-                          e.currentTarget.style.transform = "scale(1.05)";
-                        }}
-                        onMouseLeave={(
-                          e: React.MouseEvent<HTMLButtonElement>
-                        ) => {
-                          e.currentTarget.style.background = "white";
-                          e.currentTarget.style.color = "#3B82F6";
-                          e.currentTarget.style.transform = "scale(1)";
-                        }}
-                      >
-                        {seat.number}
-                      </button>
-                    ))}
-                </div>
-              </div>
-            )}
-
-            {studentForSeatSelection.grade === 2 && (
-              <>
-                <div
-                  style={{
-                    border: "2px solid #ddd",
-                    borderRadius: "16px",
-                    padding: "20px",
-                    background: "white",
-                  }}
-                >
-                  <h3
-                    style={{
-                      marginBottom: "15px",
-                      fontSize: "20px",
-                      fontWeight: "bold",
-                      color: "#1F2937",
-                    }}
-                  >
-                    B그룹 - 2학년 폐쇄형
-                  </h3>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: isMobile
-                        ? "repeat(5, 1fr)"
-                        : "repeat(7, 1fr)",
-                      gap: "12px",
-                    }}
-                  >
-                    {availableSeatsForSelection
-                      .filter((s: Seat) => s.group === "B")
-                      .map((seat: Seat) => (
-                        <button
-                          key={seat.id}
-                          onClick={() => completeSeatSelection(seat.id)}
-                          style={{
-                            padding: isMobile ? "15px" : "20px",
-                            fontSize: isMobile ? "16px" : "20px",
-                            fontWeight: "bold",
-                            border: "3px solid #10B981",
-                            borderRadius: "12px",
-                            background: "white",
-                            cursor: "pointer",
-                            transition: "all 0.2s",
-                            color: "#10B981",
-                          }}
-                          onMouseEnter={(
-                            e: React.MouseEvent<HTMLButtonElement>
-                          ) => {
-                            e.currentTarget.style.background = "#10B981";
-                            e.currentTarget.style.color = "white";
-                            e.currentTarget.style.transform = "scale(1.05)";
-                          }}
-                          onMouseLeave={(
-                            e: React.MouseEvent<HTMLButtonElement>
-                          ) => {
-                            e.currentTarget.style.background = "white";
-                            e.currentTarget.style.color = "#10B981";
-                            e.currentTarget.style.transform = "scale(1)";
-                          }}
-                        >
-                          {seat.number}
-                        </button>
-                      ))}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    border: "2px solid #ddd",
-                    borderRadius: "16px",
-                    padding: "20px",
-                    background: "white",
-                  }}
-                >
-                  <h3
-                    style={{
-                      marginBottom: "15px",
-                      fontSize: "20px",
-                      fontWeight: "bold",
-                      color: "#1F2937",
-                    }}
-                  >
-                    C그룹 - 2학년 폐쇄형
-                  </h3>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: isMobile
-                        ? "repeat(5, 1fr)"
-                        : "repeat(7, 1fr)",
-                      gap: "12px",
-                    }}
-                  >
-                    {availableSeatsForSelection
-                      .filter((s: Seat) => s.group === "C")
-                      .map((seat: Seat) => (
-                        <button
-                          key={seat.id}
-                          onClick={() => completeSeatSelection(seat.id)}
-                          style={{
-                            padding: isMobile ? "15px" : "20px",
-                            fontSize: isMobile ? "16px" : "20px",
-                            fontWeight: "bold",
-                            border: "3px solid #8B5CF6",
-                            borderRadius: "12px",
-                            background: "white",
-                            cursor: "pointer",
-                            transition: "all 0.2s",
-                            color: "#8B5CF6",
-                          }}
-                          onMouseEnter={(
-                            e: React.MouseEvent<HTMLButtonElement>
-                          ) => {
-                            e.currentTarget.style.background = "#8B5CF6";
-                            e.currentTarget.style.color = "white";
-                            e.currentTarget.style.transform = "scale(1.05)";
-                          }}
-                          onMouseLeave={(
-                            e: React.MouseEvent<HTMLButtonElement>
-                          ) => {
-                            e.currentTarget.style.background = "white";
-                            e.currentTarget.style.color = "#8B5CF6";
-                            e.currentTarget.style.transform = "scale(1)";
-                          }}
-                        >
-                          {seat.number}
-                        </button>
-                      ))}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    border: "2px solid #ddd",
-                    borderRadius: "16px",
-                    padding: "20px",
-                    background: "white",
-                  }}
-                >
-                  <h3
-                    style={{
-                      marginBottom: "15px",
-                      fontSize: "20px",
-                      fontWeight: "bold",
-                      color: "#1F2937",
-                    }}
-                  >
-                    D그룹 - 2학년 오픈형
-                  </h3>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: isMobile
-                        ? "repeat(6, 1fr)"
-                        : "repeat(8, 1fr)",
-                      gap: "12px",
-                    }}
-                  >
-                    {availableSeatsForSelection
-                      .filter((s: Seat) => s.group === "D")
-                      .map((seat: Seat) => (
-                        <button
-                          key={seat.id}
-                          onClick={() => completeSeatSelection(seat.id)}
-                          style={{
-                            padding: isMobile ? "15px" : "20px",
-                            fontSize: isMobile ? "16px" : "20px",
-                            fontWeight: "bold",
-                            border: "3px solid #F59E0B",
-                            borderRadius: "12px",
-                            background: "white",
-                            cursor: "pointer",
-                            transition: "all 0.2s",
-                            color: "#F59E0B",
-                          }}
-                          onMouseEnter={(
-                            e: React.MouseEvent<HTMLButtonElement>
-                          ) => {
-                            e.currentTarget.style.background = "#F59E0B";
-                            e.currentTarget.style.color = "white";
-                            e.currentTarget.style.transform = "scale(1.05)";
-                          }}
-                          onMouseLeave={(
-                            e: React.MouseEvent<HTMLButtonElement>
-                          ) => {
-                            e.currentTarget.style.background = "white";
-                            e.currentTarget.style.color = "#F59E0B";
-                            e.currentTarget.style.transform = "scale(1)";
-                          }}
-                        >
-                          {seat.number}
-                        </button>
-                      ))}
-                  </div>
-                </div>
-              </>
-            )}
+          {/* ✅ SeatGrid 컴포넌트 사용 */}
+          <div style={{ marginBottom: "30px" }}>
+            <SeatGrid
+              seats={seats}
+              reservations={reservations}
+              currentDate={currentDate}
+              grade={studentForSeatSelection.grade}
+              mode="select"
+              onSeatClick={setSelectedSeatId}
+              selectedSeat={selectedSeatId}
+            />
           </div>
 
-          <button
-            onClick={() => {
-              setSelectingSeat(false);
-              setStudentForSeatSelection(null);
-            }}
-            style={{
-              marginTop: "30px",
-              width: "100%",
-              padding: "18px",
-              fontSize: "18px",
-              border: "2px solid #E5E7EB",
-              borderRadius: "12px",
-              background: "white",
-              cursor: "pointer",
-              fontWeight: "bold",
-              color: "#6B7280",
-            }}
-          >
-            취소
-          </button>
+          {/* 입실하기 & 취소 버튼 */}
+          <div style={{ display: "flex", gap: "15px" }}>
+            <button
+              onClick={() => {
+                setSelectingSeat(false);
+                setStudentForSeatSelection(null);
+                setSelectedSeatId("");
+              }}
+              style={{
+                flex: 1,
+                padding: "18px",
+                fontSize: "18px",
+                border: "2px solid #E5E7EB",
+                borderRadius: "12px",
+                background: "white",
+                cursor: "pointer",
+                fontWeight: "bold",
+                color: "#6B7280",
+              }}
+            >
+              취소
+            </button>
+            <button
+              onClick={() =>
+                selectedSeatId && completeSeatSelection(selectedSeatId)
+              }
+              disabled={!selectedSeatId}
+              style={{
+                flex: 1,
+                padding: "18px",
+                fontSize: "18px",
+                border: "none",
+                borderRadius: "12px",
+                background: selectedSeatId ? "#3B82F6" : "#D1D5DB",
+                color: "white",
+                cursor: selectedSeatId ? "pointer" : "not-allowed",
+                fontWeight: "bold",
+              }}
+            >
+              입실하기
+            </button>
+          </div>
         </div>
       </div>
     );
