@@ -120,53 +120,64 @@ const KioskView: React.FC<KioskViewProps> = ({
       return;
     }
 
-    // 🎯 1학년 처리 로직 (고정 좌석 사용)
+    // 🎯 1학년 처리 로직 (고정 좌석 미사용): 단순 입실만 체크
     if (student.grade === 1) {
       try {
         const now = new Date();
         const hours = String(now.getHours()).padStart(2, "0");
         const minutes = String(now.getMinutes()).padStart(2, "0");
         const seconds = String(now.getSeconds()).padStart(2, "0");
-        const checkInTime = `${hours}:${minutes}:${seconds}`;
+        const checkTime = `${hours}:${minutes}:${seconds}`;
 
-        // 1. 이미 입실했는지 확인
+        // 1. 당일 예약 기록 확인
         const existingReservation = reservations.find(
           (r) => r.student_id === student.id && r.date === currentDate
         );
 
+        // 1학년은 좌석 정보를 사용하지 않음 (seat_id = null)
+        const seatInfo = "좌석 미지정 입실";
+
         if (existingReservation) {
-          alert("이미 입실 처리되었습니다.");
+          // A. 이미 입실 완료 상태인 경우 -> 경고 메시지 후 종료
+          if (existingReservation.status === "입실완료") {
+            alert("이미 입실 처리되었습니다.");
+            return;
+          }
+
+          // B. 예약, 미입실, 퇴실 완료 등 다른 상태인 경우 -> 입실 완료로 업데이트
+          const { error } = await supabase
+            .from("reservations")
+            .update({
+              seat_id: null, // 좌석 미지정 유지
+              status: "입실완료",
+              check_in_time: checkTime,
+              check_out_time: null, // 퇴실 기록 초기화
+            })
+            .eq("id", existingReservation.id);
+
+          if (error) throw error;
+
+          showOverlay({
+            studentName: student.name,
+            grade: student.grade,
+            seatInfo: seatInfo,
+            status: "success",
+            message: "입실 완료!",
+          });
+          await onDataChange();
           return;
         }
 
-        // 2. 고정 좌석이 배정되었는지 확인
-        if (!student.fixed_seat_id) {
-          alert("고정 좌석이 배정되지 않았습니다. 담임 선생님께 문의하세요.");
-          return;
-        }
-
-        const fixedSeat = seats.find((s) => s.id === student.fixed_seat_id);
-
-        // 3. 고정 좌석이 이미 사용 중인지 확인
-        const seatReserved = reservations.find(
-          (r) => r.seat_id === fixedSeat?.id && r.date === currentDate
-        );
-
-        if (seatReserved) {
-          alert("지정된 고정좌석이 이미 사용 중입니다. 관리자에게 문의하세요.");
-          return;
-        }
-
-        // 4. 입실 처리
-        const { data, error } = await supabase
+        // 2. 예약 기록이 없는 경우 -> 신규 입실 기록 생성 (좌석 null)
+        const { error, data } = await supabase
           .from("reservations")
           .insert([
             {
               student_id: student.id,
-              seat_id: student.fixed_seat_id, // ✅ 고정 좌석 ID 사용
+              seat_id: null, // 좌석 미지정
               date: currentDate,
               status: "입실완료",
-              check_in_time: checkInTime,
+              check_in_time: checkTime,
             },
           ])
           .select();
@@ -176,7 +187,7 @@ const KioskView: React.FC<KioskViewProps> = ({
           showOverlay({
             studentName: student.name,
             grade: student.grade,
-            seatInfo: `${fixedSeat?.type} ${fixedSeat?.number}번 (고정좌석)`,
+            seatInfo: seatInfo,
             status: "success",
             message: "1학년 입실 완료!",
           });
@@ -187,7 +198,7 @@ const KioskView: React.FC<KioskViewProps> = ({
         console.error("1학년 입실 오류:", error);
         alert("입실 처리에 실패했습니다.");
       }
-      return;
+      return; // 1학년은 여기서 로직 종료
     }
 
     // 🎯 2, 3학년 처리 로직
@@ -201,17 +212,14 @@ const KioskView: React.FC<KioskViewProps> = ({
         return;
       }
 
-      // ✅ [HOTFIX] 2학년은 예약 상태여도 (입실 완료가 아니면) 좌석 선택 화면으로 이동
+      // ✅ 2학년은 예약 상태여도 (입실 완료가 아니면) 좌석 선택 화면으로 이동
       if (student.grade === 2) {
         setStudentForSeatSelection(student);
         setSelectingSeat(true);
-        // 기존 예약이 발견되면 selectedSeatId를 미리 설정해두면 편리할 수 있으나,
-        // 일단 사용자가 다시 선택하도록 유도하는 것이 키오스크 목적에 맞음.
-        //setSelectedSeatId(reservation.seat_id || '');
         return;
       }
 
-      // 3학년 (예약 상태)은 자동 입실 처리 (기존 로직 유지)
+      // 3학년 (예약 상태)은 자동 입실 처리
       try {
         const now = new Date();
         const hours = String(now.getHours()).padStart(2, "0");
