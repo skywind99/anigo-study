@@ -349,8 +349,8 @@ const KioskView: React.FC<KioskViewProps> = ({
             </h1>
             <p style={{ fontSize: "18px", color: "#6B7280" }}>
               {studentForSeatSelection.grade}학년{" "}
-              {studentForSeatSelection.class}반{" "}
-              {studentForSeatSelection.number}번
+              {studentForSeatSelection.class}반 {studentForSeatSelection.number}
+              번
             </p>
           </div>
 
