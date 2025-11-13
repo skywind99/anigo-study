@@ -193,8 +193,17 @@ const App: React.FC = () => {
       if (studentsError) throw studentsError;
       setStudents(studentsData || []);
 
+      // ✅ 최근 3개월 데이터 모두 로드
+      const threeMonthsAgo = new Date();
+      threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+      const startDate = threeMonthsAgo.toISOString().split("T")[0];
+
       const { data: reservationsData, error: reservationsError } =
-        await supabase.from("reservations").select("*").eq("date", currentDate);
+        await supabase
+          .from("reservations")
+          .select("*")
+          .gte("date", startDate) // 🔥 3개월 전부터
+          .order("date", { ascending: false });
 
       if (reservationsError) throw reservationsError;
       setReservations(reservationsData || []);
@@ -202,7 +211,8 @@ const App: React.FC = () => {
       const { data: absencesData, error: absencesError } = await supabase
         .from("absences")
         .select("*")
-        .eq("date", currentDate);
+        .gte("date", startDate) // 🔥 3개월 전부터
+        .order("date", { ascending: false });
 
       if (absencesError) throw absencesError;
       setAbsences(absencesData || []);
