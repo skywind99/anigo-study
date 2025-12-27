@@ -267,7 +267,7 @@ const TeacherView: React.FC<TeacherViewProps> = ({
       alert("데이터 리셋에 실패했습니다.");
     }
   };
-
+  //251227
   const handleSaveSeats = async () => {
     try {
       // 🔥 타입 정의를 밖으로 빼기
