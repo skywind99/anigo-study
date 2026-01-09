@@ -1,125 +1,160 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "../supabaseClient";
-import { Student, User } from "../App";
+import { User, Student } from "../App";
 
 interface LoginViewProps {
-  onClose: () => void;
-  onLoginSuccess: (type: "student" | "user", data: Student | User) => void;
+  onLoginSuccess: (user: User | null, student: Student | null) => void;
+  onClose?: () => void;
 }
 
-const LoginView: React.FC<LoginViewProps> = ({ onClose, onLoginSuccess }) => {
-  const [loginType, setLoginType] = useState<"student" | "teacher" | "admin">(
-    "student"
-  );
-  const [loginForm, setLoginForm] = useState({
-    grade: 2,
-    class: 1,
-    number: 1,
-    password: "",
-    email: "",
-    barcode: "",
-  });
-  const [isComposing, setIsComposing] = useState(false);
+const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onClose }) => {
+  const [loginId, setLoginId] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const resetLoginForm = () => {
-    setLoginForm({
-      grade: 2,
-      class: 1,
-      number: 1,
-      password: "",
-      email: "",
-      barcode: "",
-    });
-  };
-
-  const handleLogin = async () => {
-    try {
-      if (loginType === "student") {
-        // ✅ 번호 범위 체크
-        if (loginForm.number < 1 || loginForm.number > 50) {
-          alert("번호는 1-50 사이여야 합니다.");
-          return;
-        }
-
-        const studentId = `${loginForm.grade}${loginForm.class}${String(
-          loginForm.number
-        ).padStart(2, "0")}`;
-        const { data, error } = await supabase
-          .from("students")
-          .select("*")
-          .eq("id", studentId)
-          .eq("password", loginForm.password)
-          .single();
-
-        if (error || !data) {
-          alert("학년, 반, 번호 또는 비밀번호가 일치하지 않습니다.");
-          return;
-        }
-
-        // ✅ localStorage에 저장
-        localStorage.setItem("loggedInStudent", JSON.stringify(data));
-        console.log("💾 학생 로그인 정보 저장:", data);
-
-        onLoginSuccess("student", data);
-        resetLoginForm();
-        alert(`${data.name}님 환영합니다!`);
-      } else {
-        const { data, error } = await supabase
-          .from("users")
-          .select("*")
-          .eq("email", loginForm.email)
-          .eq("password", loginForm.password)
-          .eq("role", loginType === "admin" ? "admin" : "teacher")
-          .single();
-
-        if (error || !data) {
-          alert("이메일 또는 비밀번호가 일치하지 않습니다.");
-          return;
-        }
-
-        // ✅ localStorage에 저장
-        localStorage.setItem("loggedInUser", JSON.stringify(data));
-        console.log("💾 사용자 로그인 정보 저장:", data);
-
-        onLoginSuccess("user", data);
-        resetLoginForm();
-        alert(`${data.name}님 환영합니다!`);
+  // ESC 키로 모달 닫기
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && onClose) {
+        onClose();
       }
-    } catch (error) {
-      console.error("로그인 오류:", error);
-      alert("로그인에 실패했습니다.");
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [onClose]);
+
+  // 🔍 학생 ID 형식 검증 및 파싱 (GCCNN)
+  const parseStudentId = (
+    id: string
+  ): { grade: number; class: number; number: number } | null => {
+    // 5자리 숫자인지 확인
+    if (!/^\d{5}$/.test(id)) {
+      return null;
     }
+
+    const grade = parseInt(id[0]); // 첫 번째 자리: 학년
+    const classNum = parseInt(id.substring(1, 3)); // 2-3번째 자리: 반
+    const number = parseInt(id.substring(3, 5)); // 4-5번째 자리: 번호
+
+    // 유효성 검증
+    if (grade < 1 || grade > 3) return null;
+    if (classNum < 1 || classNum > 4) return null;
+    if (number < 1 || number > 99) return null;
+
+    return { grade, class: classNum, number };
   };
 
-  const handleBarcodeLogin = async () => {
+  // 🎓 학생 로그인 처리
+  const handleStudentLogin = async (parsedId: {
+    grade: number;
+    class: number;
+    number: number;
+  }) => {
     try {
-      const { data, error } = await supabase
+      const { data: students, error: fetchError } = await supabase
         .from("students")
         .select("*")
-        .eq("barcode", loginForm.barcode)
-        .single();
+        .eq("grade", parsedId.grade)
+        .eq("class", parsedId.class)
+        .eq("number", parsedId.number)
+        .maybeSingle();
 
-      if (error || !data) {
-        alert("등록되지 않은 바코드입니다.");
+      if (fetchError) throw fetchError;
+
+      if (!students) {
+        setError(
+          `학생을 찾을 수 없습니다.\n(${parsedId.grade}학년 ${parsedId.class}반 ${parsedId.number}번)`
+        );
         return;
       }
 
-      // ✅ localStorage에 저장
-      localStorage.setItem("loggedInStudent", JSON.stringify(data));
-      console.log("💾 학생 바코드 로그인 정보 저장:", data);
+      // 비밀번호 확인 (고정: 0000)
+      if (password !== "0000") {
+        setError("비밀번호가 일치하지 않습니다.\n학생 비밀번호: 0000");
+        return;
+      }
 
-      onLoginSuccess("student", data);
-      resetLoginForm();
-      alert(`${data.name}님 환영합니다!`);
-    } catch (error) {
-      console.error("바코드 로그인 오류:", error);
-      alert("로그인에 실패했습니다.");
+      // 로그인 성공
+      onLoginSuccess(null, students);
+    } catch (err: any) {
+      console.error("학생 로그인 오류:", err);
+      setError("로그인 처리 중 오류가 발생했습니다.");
     }
   };
 
+  // 👨‍🏫 교사/관리자 로그인 처리
+  const handleStaffLogin = async () => {
+    try {
+      const { data: users, error: fetchError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("username", loginId)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+
+      if (!users) {
+        setError("아이디를 찾을 수 없습니다.");
+        return;
+      }
+
+      // 비밀번호 확인 (고정: 0000)
+      if (password !== "0000") {
+        setError("비밀번호가 일치하지 않습니다.\n교사/관리자 비밀번호: 0000");
+        return;
+      }
+
+      // 로그인 성공
+      onLoginSuccess(users, null);
+    } catch (err: any) {
+      console.error("교사/관리자 로그인 오류:", err);
+      setError("로그인 처리 중 오류가 발생했습니다.");
+    }
+  };
+
+  // 🔐 통합 로그인 처리
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    if (!loginId.trim()) {
+      setError("아이디를 입력해주세요.");
+      return;
+    }
+
+    if (!password.trim()) {
+      setError("비밀번호를 입력해주세요.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // ID 형식으로 학생/교사 구분
+      const parsedStudentId = parseStudentId(loginId);
+
+      if (parsedStudentId) {
+        // 5자리 숫자 → 학생 로그인
+        await handleStudentLogin(parsedStudentId);
+      } else {
+        // 그 외 → 교사/관리자 로그인
+        await handleStaffLogin();
+      }
+    } catch (err) {
+      console.error("로그인 오류:", err);
+      setError("로그인 처리 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 모바일 체크
   const isMobile = window.innerWidth < 768;
 
   return (
+    // 반투명 배경 오버레이
     <div
       style={{
         position: "fixed",
@@ -127,7 +162,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onClose, onLoginSuccess }) => {
         left: 0,
         right: 0,
         bottom: 0,
-        background: "rgba(0,0,0,0.5)",
+        background: "rgba(0, 0, 0, 0.5)",
         display: "flex",
         alignItems: isMobile ? "center" : "flex-start",
         justifyContent: isMobile ? "center" : "flex-end",
@@ -137,10 +172,11 @@ const LoginView: React.FC<LoginViewProps> = ({ onClose, onLoginSuccess }) => {
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
-          onClose();
+          onClose && onClose();
         }
       }}
     >
+      {/* 로그인 패널 */}
       <div
         style={{
           background: "white",
@@ -156,6 +192,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onClose, onLoginSuccess }) => {
             ? "0 4px 6px rgba(0,0,0,0.1)"
             : "-2px 0 8px rgba(0,0,0,0.1)",
         }}
+        onClick={(e) => e.stopPropagation()}
       >
         <h2
           style={{
@@ -166,335 +203,137 @@ const LoginView: React.FC<LoginViewProps> = ({ onClose, onLoginSuccess }) => {
         >
           로그인
         </h2>
-
-        {/* 로그인 유형 선택 */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: "8px",
-            marginBottom: "20px",
-          }}
-        >
-          <button
-            onClick={() => setLoginType("student")}
-            style={{
-              padding: "12px 8px",
-              border:
-                loginType === "student"
-                  ? "2px solid #3B82F6"
-                  : "1px solid #ddd",
-              borderRadius: "8px",
-              background: loginType === "student" ? "#EFF6FF" : "white",
-              fontWeight: loginType === "student" ? "bold" : "normal",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-          >
-            학생
-          </button>
-          <button
-            onClick={() => setLoginType("teacher")}
-            style={{
-              padding: "12px 8px",
-              border:
-                loginType === "teacher"
-                  ? "2px solid #3B82F6"
-                  : "1px solid #ddd",
-              borderRadius: "8px",
-              background: loginType === "teacher" ? "#EFF6FF" : "white",
-              fontWeight: loginType === "teacher" ? "bold" : "normal",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-          >
-            교사
-          </button>
-          <button
-            onClick={() => setLoginType("admin")}
-            style={{
-              padding: "12px 8px",
-              border:
-                loginType === "admin" ? "2px solid #3B82F6" : "1px solid #ddd",
-              borderRadius: "8px",
-              background: loginType === "admin" ? "#EFF6FF" : "white",
-              fontWeight: loginType === "admin" ? "bold" : "normal",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-          >
-            관리자
-          </button>
-        </div>
-
-        {/* 학생 로그인 폼 */}
-        {loginType === "student" && (
-          <>
-            <div style={{ marginBottom: "20px" }}>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "10px",
-                  fontWeight: "bold",
-                  fontSize: "14px",
-                }}
-              >
-                학년/반/번호로 로그인
-              </label>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr 1fr",
-                  gap: "8px",
-                  marginBottom: "12px",
-                }}
-              >
-                <select
-                  value={loginForm.grade}
-                  onChange={(e) =>
-                    setLoginForm({
-                      ...loginForm,
-                      grade: Number(e.target.value),
-                    })
-                  }
-                  style={{
-                    padding: "10px 8px",
-                    border: "1px solid #ddd",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                  }}
-                >
-                  <option value={1}>1학년</option>
-                  <option value={2}>2학년</option>
-                  <option value={3}>3학년</option>
-                </select>
-                <select
-                  value={loginForm.class}
-                  onChange={(e) =>
-                    setLoginForm({
-                      ...loginForm,
-                      class: Number(e.target.value),
-                    })
-                  }
-                  style={{
-                    padding: "10px 8px",
-                    border: "1px solid #ddd",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                  }}
-                >
-                  <option value={1}>1반</option>
-                  <option value={2}>2반</option>
-                  <option value={3}>3반</option>
-                  <option value={4}>4반</option>
-                </select>
-                <input
-                  type="number"
-                  min="1"
-                  max="50"
-                  placeholder="번호"
-                  value={loginForm.number}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value);
-                    // ✅ 0 이하 방지
-                    if (val >= 1 && val <= 50) {
-                      setLoginForm({
-                        ...loginForm,
-                        number: val,
-                      });
-                    } else if (e.target.value === "") {
-                      setLoginForm({
-                        ...loginForm,
-                        number: 1,
-                      });
-                    }
-                  }}
-                  style={{
-                    padding: "10px 8px",
-                    border: "1px solid #ddd",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                  }}
-                />
-              </div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "8px",
-                  fontWeight: "bold",
-                  fontSize: "14px",
-                }}
-              >
-                비밀번호
-              </label>
-              <input
-                type="password"
-                placeholder="비밀번호 (생년월일 4자리)"
-                value={loginForm.password}
-                onChange={(e) =>
-                  setLoginForm({ ...loginForm, password: e.target.value })
-                }
-                onCompositionStart={() => setIsComposing(true)}
-                onCompositionEnd={() => setIsComposing(false)}
-                onKeyPress={(e) => {
-                  if (e.key === "Enter" && !isComposing) {
-                    handleLogin();
-                  }
-                }}
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  border: "1px solid #ddd",
-                  borderRadius: "8px",
-                  boxSizing: "border-box",
-                  fontSize: "14px",
-                }}
-              />
-              <p
-                style={{
-                  fontSize: "12px",
-                  color: "#666",
-                  marginTop: "8px",
-                  lineHeight: "1.4",
-                }}
-              >
-                테스트: 2학년 1반 1번 / 비밀번호: 0000
-              </p>
-            </div>
-
-            <button
-              onClick={handleLogin}
+        <form onSubmit={handleLogin}>
+          {/* 아이디 입력 */}
+          <div style={{ marginBottom: "20px" }}>
+            <label
               style={{
-                width: "100%",
-                padding: "14px",
-                background: "#3B82F6",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                fontWeight: "bold",
-                fontSize: "16px",
-                cursor: "pointer",
+                display: "block",
+                marginBottom: "8px",
+                fontWeight: "600",
+                color: "#333",
+                fontSize: "14px",
               }}
             >
-              로그인
-            </button>
-          </>
-        )}
-
-        {/* 교사/관리자 로그인 폼 */}
-        {(loginType === "teacher" || loginType === "admin") && (
-          <>
-            <div style={{ marginBottom: "15px" }}>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "8px",
-                  fontWeight: "bold",
-                  fontSize: "14px",
-                }}
-              >
-                이메일
-              </label>
-              <input
-                type="email"
-                placeholder={
-                  loginType === "admin"
-                    ? "admin@school.com"
-                    : "teacher@school.com"
-                }
-                value={loginForm.email}
-                onChange={(e) =>
-                  setLoginForm({ ...loginForm, email: e.target.value })
-                }
-                onCompositionStart={() => setIsComposing(true)}
-                onCompositionEnd={() => setIsComposing(false)}
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  border: "1px solid #ddd",
-                  borderRadius: "8px",
-                  boxSizing: "border-box",
-                  fontSize: "14px",
-                }}
-              />
-              <p
-                style={{
-                  fontSize: "12px",
-                  color: "#666",
-                  marginTop: "8px",
-                  lineHeight: "1.4",
-                }}
-              >
-                테스트:{" "}
-                {loginType === "admin"
-                  ? "admin@school.com"
-                  : "teacher@school.com"}
-              </p>
-            </div>
-            <div style={{ marginBottom: "15px" }}>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "8px",
-                  fontWeight: "bold",
-                  fontSize: "14px",
-                }}
-              >
-                비밀번호
-              </label>
-              <input
-                type="password"
-                placeholder="비밀번호"
-                value={loginForm.password}
-                onChange={(e) =>
-                  setLoginForm({ ...loginForm, password: e.target.value })
-                }
-                onCompositionStart={() => setIsComposing(true)}
-                onCompositionEnd={() => setIsComposing(false)}
-                onKeyPress={(e) => {
-                  if (e.key === "Enter" && !isComposing) {
-                    handleLogin();
-                  }
-                }}
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  border: "1px solid #ddd",
-                  borderRadius: "8px",
-                  boxSizing: "border-box",
-                  fontSize: "14px",
-                }}
-              />
-              <p
-                style={{
-                  fontSize: "12px",
-                  color: "#666",
-                  marginTop: "8px",
-                  lineHeight: "1.4",
-                }}
-              >
-                테스트: {loginType === "admin" ? "admin1234" : "teacher1234"}
-              </p>
-            </div>
-            <button
-              onClick={handleLogin}
+              아이디
+            </label>
+            <input
+              type="text"
+              value={loginId}
+              onChange={(e) => setLoginId(e.target.value)}
+              placeholder="학생: 20315 / 교사: teacher / 관리자: admin"
               style={{
                 width: "100%",
-                padding: "14px",
-                background: "#3B82F6",
-                color: "white",
-                border: "none",
+                padding: "12px 16px",
+                border: "2px solid #E5E7EB",
                 borderRadius: "8px",
-                fontWeight: "bold",
-                fontSize: "16px",
-                cursor: "pointer",
+                fontSize: "14px",
+                transition: "border-color 0.2s",
+                outline: "none",
+              }}
+              onFocus={(e) => (e.target.style.borderColor = "#667eea")}
+              onBlur={(e) => (e.target.style.borderColor = "#E5E7EB")}
+            />
+            <p
+              style={{
+                fontSize: "12px",
+                color: "#6B7280",
+                marginTop: "6px",
+                lineHeight: "1.5",
               }}
             >
-              로그인
-            </button>
-          </>
-        )}
+              💡 학생: 5자리 숫자 (학년+반+번호, 예: 20315)
+              <br />
+              &nbsp;&nbsp;&nbsp;&nbsp;교사/관리자: 아이디 입력
+            </p>
+          </div>
 
+          {/* 비밀번호 입력 */}
+          <div style={{ marginBottom: "24px" }}>
+            <label
+              style={{
+                display: "block",
+                marginBottom: "8px",
+                fontWeight: "600",
+                color: "#333",
+                fontSize: "14px",
+              }}
+            >
+              비밀번호
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="모든 사용자: 0000"
+              style={{
+                width: "100%",
+                padding: "12px 16px",
+                border: "2px solid #E5E7EB",
+                borderRadius: "8px",
+                fontSize: "14px",
+                transition: "border-color 0.2s",
+                outline: "none",
+              }}
+              onFocus={(e) => (e.target.style.borderColor = "#667eea")}
+              onBlur={(e) => (e.target.style.borderColor = "#E5E7EB")}
+            />
+            <p
+              style={{
+                fontSize: "12px",
+                color: "#6B7280",
+                marginTop: "6px",
+              }}
+            >
+              💡 모든 사용자 비밀번호: 0000
+            </p>
+          </div>
+
+          {/* 에러 메시지 */}
+          {error && (
+            <div
+              style={{
+                background: "#FEE2E2",
+                border: "1px solid #EF4444",
+                borderRadius: "8px",
+                padding: "12px",
+                marginBottom: "20px",
+              }}
+            >
+              <p
+                style={{
+                  color: "#DC2626",
+                  fontSize: "14px",
+                  margin: 0,
+                  whiteSpace: "pre-line",
+                }}
+              >
+                {error}
+              </p>
+            </div>
+          )}
+
+          {/* 로그인 버튼 */}
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: "100%",
+              padding: "14px",
+              background: "#3B82F6",
+              color: "white",
+              border: "none",
+              borderRadius: "8px",
+              fontWeight: "bold",
+              fontSize: "16px",
+              cursor: "pointer",
+            }}
+          >
+            {loading ? "로그인 중..." : "로그인"}
+          </button>
+        </form>
+
+        {/* 취소 버튼 */}
         <button
           onClick={onClose}
           style={{

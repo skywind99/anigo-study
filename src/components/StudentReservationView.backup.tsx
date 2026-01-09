@@ -24,7 +24,6 @@ const StudentReservationView: React.FC<StudentReservationViewProps> = ({
 }) => {
   const [selectedSeat, setSelectedSeat] = useState<string>("");
   const [absenceReason, setAbsenceReason] = useState("");
-  const [isReserving, setIsReserving] = useState(false); // 예약 진행 중 표시
 
   // 🔄 실시간 예약 변경 감지
   useEffect(() => {
@@ -43,11 +42,10 @@ const StudentReservationView: React.FC<StudentReservationViewProps> = ({
         },
         (payload) => {
           console.log("예약 변경 감지:", payload);
-
-          // 즉시 데이터 새로고침
+          // 데이터 새로고침
           onDataChange();
 
-          // 내가 선택한 좌석이 다른 사람이 예약한 좌석이면 알림 및 초기화
+          // 내가 선택한 좌석이 다른 사람이 예약한 좌석이면 알림
           if (
             payload.eventType === "INSERT" &&
             selectedSeat === payload.new.seat_id &&
@@ -547,26 +545,14 @@ const StudentReservationView: React.FC<StudentReservationViewProps> = ({
       return;
     }
 
-    // 🚫 중복 예약 방지
-    if (isReserving) {
-      alert("예약 처리 중입니다. 잠시만 기다려주세요.");
-      return;
-    }
-
-    setIsReserving(true);
-
     try {
-      // 🔄 실시간으로 최신 예약 데이터 확인 (DB에서 직접)
+      // 🔄 최신 예약 데이터 가져오기 (실시간 충돌 방지)
       const { data: latestReservations, error: fetchError } = await supabase
         .from("reservations")
-        .select("*, students(*)")
-        .eq("date", currentDate)
-        .eq("seat_id", selectedSeat); // 선택한 좌석만 조회
+        .select("*")
+        .eq("date", currentDate);
 
-      if (fetchError) {
-        console.error("예약 조회 오류:", fetchError);
-        throw fetchError;
-      }
+      if (fetchError) throw fetchError;
 
       // 🔒 2차 체크: 선택한 좌석이 다른 학생의 고정좌석인지 확인
       const fixedSeatOwner = students.find(
@@ -575,31 +561,34 @@ const StudentReservationView: React.FC<StudentReservationViewProps> = ({
 
       if (fixedSeatOwner) {
         alert(
-          `⛔ 고정좌석입니다.\n\n이 좌석은 ${fixedSeatOwner.name} 학생의 고정좌석입니다.\n\n다른 좌석을 선택해주세요.`
+          `⛔ 이 좌석은 ${fixedSeatOwner.name} 학생의 고정좌석입니다.\n다른 좌석을 선택해주세요.`
         );
         setSelectedSeat("");
-        await onDataChange();
-        setIsReserving(false);
+        await onDataChange(); // 화면 업데이트
         return;
       }
 
-      // 🔒 3차 체크: 이미 다른 학생이 예약한 좌석인지 확인 (최신 데이터 기준)
-      if (latestReservations && latestReservations.length > 0) {
-        const existingReservation = latestReservations[0];
-        const reservedStudentName =
-          existingReservation.students?.name || "다른 학생";
+      // 🔒 3차 체크: 최신 데이터로 이미 예약된 좌석인지 확인
+      const existingReservation = latestReservations?.find(
+        (r) => r.seat_id === selectedSeat
+      );
 
+      if (existingReservation) {
+        const reservedStudent = students.find(
+          (s) => s.id === existingReservation.student_id
+        );
         alert(
-          `⛔ 이미 예약된 좌석입니다.\n\n${reservedStudentName}이(가) 예약한 좌석입니다.\n\n좌석 상태가 업데이트됩니다.\n다른 좌석을 선택해주세요.`
+          `⛔ 이미 ${
+            reservedStudent?.name || "다른 학생"
+          }이(가) 예약한 좌석입니다.\n다른 좌석을 선택해주세요.`
         );
         setSelectedSeat("");
-        await onDataChange(); // 화면 새로고침하여 최신 좌석 상태 반영
-        setIsReserving(false);
+        await onDataChange(); // 화면 업데이트하여 최신 좌석 상태 반영
         return;
       }
 
-      // ✅ 예약 실행 - 트랜잭션처럼 처리
-      const { data: insertData, error: insertError } = await supabase
+      // ✅ 예약 실행
+      const { error: insertError } = await supabase
         .from("reservations")
         .insert([
           {
@@ -608,67 +597,28 @@ const StudentReservationView: React.FC<StudentReservationViewProps> = ({
             date: currentDate,
             status: "예약",
           },
-        ])
-        .select();
+        ]);
 
       if (insertError) {
-        console.error("예약 삽입 오류:", insertError);
-        setIsReserving(false);
-
         // 중복 예약 오류 처리 (unique constraint violation)
-        if (
-          insertError.code === "23505" ||
-          insertError.message?.includes("duplicate key")
-        ) {
-          // 한 번 더 최신 데이터 확인
-          const { data: recheckData } = await supabase
-            .from("reservations")
-            .select("*, students(*)")
-            .eq("date", currentDate)
-            .eq("seat_id", selectedSeat);
-
-          const conflictStudent =
-            recheckData?.[0]?.students?.name || "다른 학생";
-
-          alert(
-            `⛔ 이미 예약된 좌석입니다.\n${conflictStudent}이(가) 먼저 예약했습니다.\n\n좌석 상태가 업데이트됩니다.\n다른 좌석을 선택해주세요.`
-          );
+        if (insertError.code === "23505") {
+          alert("⛔ 이미 예약된 좌석입니다.\n다른 좌석을 선택해주세요.");
           setSelectedSeat("");
           await onDataChange();
           return;
         }
-
-        // 기타 에러 처리
-        const errorMsg =
-          insertError.message || insertError.details || "알 수 없는 오류";
-        alert(`❌ 예약에 실패했습니다.\n\n${errorMsg}\n\n다시 시도해주세요.`);
-        setSelectedSeat("");
-        await onDataChange();
-        return;
+        throw insertError;
       }
 
-      // 예약 성공
-      alert("✅ 예약이 완료되었습니다!");
+      alert("✅ 예약이 완료되었습니다.");
       setSelectedSeat("");
       await onDataChange();
     } catch (error: any) {
-      console.error("예약 처리 오류:", error);
-
-      // 에러 메시지 추출
-      let errorMessage = "알 수 없는 오류가 발생했습니다.";
-      if (error?.message) {
-        errorMessage = error.message;
-      } else if (error?.details) {
-        errorMessage = error.details;
-      } else if (typeof error === "string") {
-        errorMessage = error;
-      }
-
-      alert(`❌ 예약에 실패했습니다.\n\n${errorMessage}\n\n다시 시도해주세요.`);
-      setSelectedSeat("");
+      console.error("예약 오류:", error);
+      alert(`❌ 예약에 실패했습니다.\n${error.message || ""}`);
+      // 오류 발생 시에도 데이터 새로고침
       await onDataChange();
-    } finally {
-      setIsReserving(false);
+      setSelectedSeat("");
     }
   };
 
@@ -716,48 +666,6 @@ const StudentReservationView: React.FC<StudentReservationViewProps> = ({
       console.error("예약 취소 오류:", error);
       alert("예약 취소에 실패했습니다.");
     }
-  };
-
-  // 🔍 좌석 클릭 핸들러 - 실시간 검증 추가
-  const handleSeatClick = async (seatId: string) => {
-    // 🔒 고정좌석 학생 체크
-    if (loggedInStudent.fixed_seat_id) {
-      alert("⛔ 고정좌석이 배정된 학생은 좌석을 선택할 수 없습니다.");
-      return;
-    }
-
-    // 🔄 클릭한 좌석의 최신 상태 확인
-    const { data: seatCheck, error } = await supabase
-      .from("reservations")
-      .select("*, students(*)")
-      .eq("date", currentDate)
-      .eq("seat_id", seatId);
-
-    if (error) {
-      console.error("좌석 상태 확인 오류:", error);
-    }
-
-    // 이미 예약된 좌석이면 경고
-    if (seatCheck && seatCheck.length > 0) {
-      const reservedBy = seatCheck[0].students?.name || "다른 학생";
-      alert(
-        `⚠️ 이미 예약된 좌석입니다.\n\n${reservedBy}이(가) 예약한 좌석입니다.`
-      );
-      await onDataChange(); // 화면 업데이트
-      return;
-    }
-
-    // 다른 학생의 고정좌석 체크
-    const fixedOwner = students.find((st) => st.fixed_seat_id === seatId);
-    if (fixedOwner) {
-      alert(
-        `⚠️ 고정좌석입니다.\n\n이 좌석은 ${fixedOwner.name} 학생의 고정좌석입니다.`
-      );
-      return;
-    }
-
-    // 선택 가능한 좌석이면 선택
-    setSelectedSeat(seatId);
   };
 
   return (
@@ -838,32 +746,37 @@ const StudentReservationView: React.FC<StudentReservationViewProps> = ({
               grade={loggedInStudent.grade}
               mode="select"
               selectedSeat={selectedSeat}
-              onSeatClick={handleSeatClick}
+              onSeatClick={(seatId) => {
+                // 🔒 좌석 클릭 시 고정좌석 체크
+                if (loggedInStudent.fixed_seat_id) {
+                  alert(
+                    "⛔ 고정좌석이 배정된 학생은 좌석을 선택할 수 없습니다."
+                  );
+                  return;
+                }
+                setSelectedSeat(seatId);
+              }}
               loggedInStudentId={loggedInStudent.id}
               students={students}
             />
 
             <button
               onClick={handleReservation}
-              disabled={!selectedSeat || isReserving}
+              disabled={!selectedSeat}
               style={{
                 marginTop: "20px",
                 width: "100%",
                 padding: "15px",
-                background:
-                  selectedSeat && !isReserving ? "#10B981" : "#9CA3AF",
+                background: selectedSeat ? "#10B981" : "#9CA3AF",
                 color: "white",
                 border: "none",
                 borderRadius: "8px",
-                cursor:
-                  selectedSeat && !isReserving ? "pointer" : "not-allowed",
+                cursor: selectedSeat ? "pointer" : "not-allowed",
                 fontWeight: "bold",
                 fontSize: "16px",
               }}
             >
-              {isReserving
-                ? "⏳ 예약 처리 중..."
-                : selectedSeat
+              {selectedSeat
                 ? `${
                     seats.find((s) => s.id === selectedSeat)?.number
                   }번 좌석 예약하기`
