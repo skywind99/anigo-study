@@ -262,19 +262,20 @@ const App: React.FC = () => {
       {showLogin && (
         <LoginView
           onClose={() => setShowLogin(false)}
-          onLoginSuccess={(type, data) => {
-            if (type === "student") {
-              setLoggedInStudent(data as Student);
+          onLoginSuccess={(user, student) => {
+            if (student) {
+              // 학생 로그인
+              setLoggedInStudent(student);
               setView("student");
-            } else {
-              setLoggedInUser(data as User);
-              setView((data as User).role === "admin" ? "admin" : "teacher");
+            } else if (user) {
+              // 교사/관리자 로그인
+              setLoggedInUser(user);
+              setView(user.role === "admin" ? "admin" : "teacher");
             }
             setShowLogin(false);
           }}
         />
       )}
-
       {/* 네비게이션 */}
       <nav
         style={{
