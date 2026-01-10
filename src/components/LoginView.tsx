@@ -70,13 +70,14 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onClose }) => {
         return;
       }
 
-      // 비밀번호 확인 (고정: 0000)
-      if (password !== "0000") {
-        setError("비밀번호가 일치하지 않습니다.\n학생 비밀번호: 0000");
+      // 🔥 DB에 저장된 실제 비밀번호와 비교
+      if (password !== students.password) {
+        setError("비밀번호가 일치하지 않습니다.");
         return;
       }
 
-      // 로그인 성공
+      // 로그인 성공 - localStorage에 저장
+      localStorage.setItem("loggedInStudent", JSON.stringify(students));
       onLoginSuccess(null, students);
     } catch (err: any) {
       console.error("학생 로그인 오류:", err);
@@ -100,13 +101,14 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onClose }) => {
         return;
       }
 
-      // 비밀번호 확인 (고정: 0000)
-      if (password !== "0000") {
-        setError("비밀번호가 일치하지 않습니다.\n교사/관리자 비밀번호: 0000");
+      // 🔥 DB에 저장된 실제 비밀번호와 비교
+      if (password !== users.password) {
+        setError("비밀번호가 일치하지 않습니다.");
         return;
       }
 
-      // 로그인 성공
+      // 로그인 성공 - localStorage에 저장
+      localStorage.setItem("loggedInUser", JSON.stringify(users));
       onLoginSuccess(users, null);
     } catch (err: any) {
       console.error("교사/관리자 로그인 오류:", err);
@@ -284,7 +286,9 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onClose }) => {
                 color: "#6B7280",
                 marginTop: "6px",
               }}
-            ></p>
+            >
+              💡 초기 비밀번호: 0000 (변경 권장)
+            </p>
           </div>
 
           {/* 에러 메시지 */}
@@ -318,13 +322,13 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onClose }) => {
             style={{
               width: "100%",
               padding: "14px",
-              background: "#3B82F6",
+              background: loading ? "#9CA3AF" : "#3B82F6",
               color: "white",
               border: "none",
               borderRadius: "8px",
               fontWeight: "bold",
               fontSize: "16px",
-              cursor: "pointer",
+              cursor: loading ? "not-allowed" : "pointer",
             }}
           >
             {loading ? "로그인 중..." : "로그인"}
@@ -332,21 +336,23 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onClose }) => {
         </form>
 
         {/* 취소 버튼 */}
-        <button
-          onClick={onClose}
-          style={{
-            width: "100%",
-            padding: "12px",
-            marginTop: "15px",
-            background: "white",
-            border: "1px solid #ddd",
-            borderRadius: "8px",
-            cursor: "pointer",
-            fontSize: "14px",
-          }}
-        >
-          취소
-        </button>
+        {onClose && (
+          <button
+            onClick={onClose}
+            style={{
+              width: "100%",
+              padding: "12px",
+              marginTop: "15px",
+              background: "white",
+              border: "1px solid #ddd",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            취소
+          </button>
+        )}
       </div>
     </div>
   );
